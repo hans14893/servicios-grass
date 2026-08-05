@@ -1,0 +1,47 @@
+server:
+  port: 8080
+
+debug: false
+
+spring:
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 5MB
+  application:
+    name: servicios-grass
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/resergrass}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+        jdbc:
+          time_zone: UTC
+
+logging:
+  level:
+    root: INFO
+    com.resergrass: INFO
+    org.springframework: INFO
+    org.springframework.boot.autoconfigure.logging.ConditionEvaluationReportLogger: OFF
+    org.hibernate.SQL: WARN
+    org.springframework.web.socket.config.WebSocketMessageBrokerStats: WARN
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:0123456789012345678901234567890101234567890123456789012345678901}
+    expiration-minutes: ${JWT_EXPIRATION_MINUTES:480}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:19006,http://localhost:8081,http://localhost:3000}
+  payments:
+    owner-name: ${PAYMENT_OWNER_NAME:Juan Perez}
+    yape-phone-number: ${YAPE_PHONE_NUMBER:987654321}
+    whatsapp-phone-number: ${PAYMENT_WHATSAPP_NUMBER:987654321}
+    yape-qr-url: ${YAPE_QR_URL:https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=YAPE-987654321}
+    timeout-minutes: ${PAYMENT_TIMEOUT_MINUTES:15}

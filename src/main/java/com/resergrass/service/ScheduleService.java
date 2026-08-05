@@ -1,0 +1,106 @@
+package com.resergrass.service;
+
+import com.resergrass.domain.enums.CourtStatus;
+import com.resergrass.domain.enums.ReservationStatus;
+import com.resergrass.dto.CalendarSlotDto;
+import com.resergrass.domain.entity.AvailableSchedule;
+import com.resergrass.dto.ScheduleDto;
+import com.resergrass.dto.ScheduleRequest;
+import com.resergrass.exception.ApiException;
+import com.resergrass.repository.AvailableScheduleRepository;
+import com.resergrass.repository.CourtRepository;
+import com.resergrass.repository.ReservationRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class ScheduleService {
+    private final AvailableScheduleRepository scheduleRepository;
+    private final CourtRepository courtRepository;
+    private final ReservationRepository reservationRepository;
+
+    public List<ScheduleDto> byCourtAndDate(Long courtId, LocalDate date) {
+        var schedules = scheduleRepository.findByCourtIdAndDayOfWeekAndActiveTrue(courtId, date.getDayOfWeek())
+                .stream().map(this::toDto).toList();
+        log.info("SCHEDULE_LIST courtId={} date={} day={} count={}", courtId, date, date.getDayOfWeek(), schedules.size());
+        return schedules;
+    }
+
+    public List<CalendarSlotDto> calendar(Long courtId, LocalDate date) {
+        log.info("CALENDAR_REQUEST courtId={} date={}", courtId, date);
+        var court = courtRepository.findById(courtId)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Cancha no encontrada"));
+        var schedules = scheduleRepository.findByCourtIdAndDayOfWeekAndActiveTrue(courtId, date.getDayOfWeek());
+        var reservations = reservationRepository.findByCourtIdAndReservationDateOrderByStartTimeAsc(courtId, date);
+        var slots = schedules.stream().flatMap(schedule -> {
+            var scheduleSlots = new java.util.ArrayList<CalendarSlotDto>();
+            var cursor = schedule.getStartTime();
+            while (cursor.isBefore(schedule.getEndTime())) {
+                var next = cursor.plusHours(1);
+                if (next.isAfter(schedule.getEndTime())) {
+                    next = schedule.getEndTime();
+                }
+                var slotStart = cursor;
+                var slotEnd = next;
+                var reservation = reservations.stream()
+                        .filter(item -> item.getStartTime().isBefore(slotEnd) && item.getEndTime().isAfter(slotStart))
+                        .findFirst()
+                        .orElse(null);
+                var slotIsPast = !LocalDateTime.of(date, slotStart).isAfter(LocalDateTime.now());
+                var status = slotIsPast
+                        ? "NO_DISPONIBLE"
+                        : court.getStatus() == CourtStatus.MANTENIMIENTO
+                        ? "MANTENIMIENTO"
+                        : reservation == null
+                        ? "DISPONIBLE"
+                        : reservation.getStatus() == ReservationStatus.PENDIENTE ? "PENDIENTE" : "RESERVADO";
+                scheduleSlots.add(new CalendarSlotDto(court.getId(), court.getName(), slotStart, slotEnd, status, reservation == null ? null : reservation.getId()));
+                cursor = next;
+            }
+            return scheduleSlots.stream();
+        }).toList();
+        log.info("CALENDAR_SUCCESS courtId={} date={} slots={} reservations={} courtStatus={}", courtId, date, slots.size(), reservations.size(), court.getStatus());
+        return slots;
+    }
+
+    public ScheduleDto create(ScheduleRequest request) {
+        log.info("SCHEDULE_CREATE_REQUEST courtId={} day={} start={} end={} active={}", request.courtId(), request.dayOfWeek(), request.startTime(), request.endTime(), request.active());
+        validateTimes(request);
+        var court = courtRepository.findById(request.courtId())
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Cancha no encontrada"));
+        var schedule = new AvailableSchedule();
+        schedule.setCourt(court);
+        schedule.setDayOfWeek(request.dayOfWeek());
+        schedule.setStartTime(request.startTime());
+        schedule.setEndTime(request.endTime());
+        schedule.setActive(request.active());
+        var saved = scheduleRepository.save(schedule);
+        log.info("SCHEDULE_CREATE_SUCCESS id={} courtId={} day={}", saved.getId(), saved.getCourt().getId(), saved.getDayOfWeek());
+        return toDto(saved);
+    }
+
+    private void validateTimes(ScheduleRequest request) {
+        if (!request.startTime().isBefore(request.endTime())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "La hora de inicio debe ser menor que la hora fin");
+        }
+    }
+
+    private ScheduleDto toDto(AvailableSchedule schedule) {
+        return new ScheduleDto(
+                schedule.getId(),
+                schedule.getCourt().getId(),
+                schedule.getDayOfWeek(),
+                schedule.getStartTime(),
+                schedule.getEndTime(),
+                schedule.isActive()
+        );
+    }
+}
