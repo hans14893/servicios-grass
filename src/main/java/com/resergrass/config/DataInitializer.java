@@ -39,6 +39,7 @@ public class DataInitializer {
             JdbcTemplate jdbcTemplate
     ) {
         return args -> {
+            migrateEmailVerification(jdbcTemplate);
             migrateLegacyCourtPrices(jdbcTemplate);
             migrateGuestReservations(jdbcTemplate);
             migratePaymentWorkflow(jdbcTemplate);
@@ -61,6 +62,25 @@ public class DataInitializer {
                 log.info("DATA_INIT_COURTS_EXISTS count={}", courtRepository.count());
             }
         };
+    }
+
+    private void migrateEmailVerification(JdbcTemplate jdbcTemplate) {
+        try {
+            jdbcTemplate.execute("alter table users add column if not exists email_verified boolean");
+            jdbcTemplate.execute("alter table users add column if not exists email_verification_code varchar(255)");
+            jdbcTemplate.execute("alter table users add column if not exists email_verification_expires_at timestamp with time zone");
+            jdbcTemplate.execute("alter table users add column if not exists email_verification_resend_at timestamp with time zone");
+            jdbcTemplate.execute("alter table users add column if not exists email_verification_attempts integer");
+            jdbcTemplate.execute("update users set email_verified = true where email_verified is null");
+            jdbcTemplate.execute("update users set email_verification_attempts = 0 where email_verification_attempts is null");
+            jdbcTemplate.execute("alter table users alter column email_verified set default true");
+            jdbcTemplate.execute("alter table users alter column email_verified set not null");
+            jdbcTemplate.execute("alter table users alter column email_verification_attempts set default 0");
+            jdbcTemplate.execute("alter table users alter column email_verification_attempts set not null");
+            log.info("DATA_INIT_EMAIL_VERIFICATION_MIGRATION_DONE");
+        } catch (Exception ex) {
+            log.warn("DATA_INIT_EMAIL_VERIFICATION_MIGRATION_FAILED reason={}", ex.getMessage());
+        }
     }
 
     private void seedCourt(

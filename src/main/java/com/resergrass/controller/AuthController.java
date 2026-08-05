@@ -3,8 +3,11 @@ package com.resergrass.controller;
 import com.resergrass.domain.entity.User;
 import com.resergrass.dto.UserDto;
 import com.resergrass.dto.auth.AuthResponse;
+import com.resergrass.dto.auth.EmailVerificationRequest;
 import com.resergrass.dto.auth.LoginRequest;
 import com.resergrass.dto.auth.RegisterRequest;
+import com.resergrass.dto.auth.RegistrationResponse;
+import com.resergrass.dto.auth.ResendVerificationRequest;
 import com.resergrass.service.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -18,8 +21,18 @@ public class AuthController {
     private final AuthService authService;
 
     @PostMapping("/register")
-    public AuthResponse register(@Valid @RequestBody RegisterRequest request) {
+    public RegistrationResponse register(@Valid @RequestBody RegisterRequest request) {
         return authService.register(request);
+    }
+
+    @PostMapping("/verify-email")
+    public AuthResponse verifyEmail(@Valid @RequestBody EmailVerificationRequest request) {
+        return authService.verifyEmail(request);
+    }
+
+    @PostMapping("/resend-verification")
+    public RegistrationResponse resendVerification(@Valid @RequestBody ResendVerificationRequest request) {
+        return authService.resendVerification(request);
     }
 
     @PostMapping("/login")

@@ -42,6 +42,18 @@ public class User implements UserDetails {
     @Column(nullable = false)
     private boolean enabled = true;
 
+    @Column
+    private boolean emailVerified = true;
+
+    private String emailVerificationCode;
+
+    private OffsetDateTime emailVerificationExpiresAt;
+
+    private OffsetDateTime emailVerificationResendAt;
+
+    @Column
+    private int emailVerificationAttempts;
+
     @Column(nullable = false, updatable = false)
     private OffsetDateTime createdAt = OffsetDateTime.now();
 
