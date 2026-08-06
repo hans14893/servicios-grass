@@ -54,6 +54,16 @@ public class User implements UserDetails {
     @Column
     private int emailVerificationAttempts;
 
+    private String passwordResetCode;
+
+    private OffsetDateTime passwordResetExpiresAt;
+
+    private OffsetDateTime passwordResetResendAt;
+
+    private int passwordResetAttempts;
+
+    private OffsetDateTime passwordChangedAt;
+
     @Column(nullable = false, updatable = false)
     private OffsetDateTime createdAt = OffsetDateTime.now();
 

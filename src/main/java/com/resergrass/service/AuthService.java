@@ -6,9 +6,12 @@ import com.resergrass.domain.enums.Role;
 import com.resergrass.dto.UserDto;
 import com.resergrass.dto.auth.AuthResponse;
 import com.resergrass.dto.auth.EmailVerificationRequest;
+import com.resergrass.dto.auth.ForgotPasswordRequest;
 import com.resergrass.dto.auth.LoginRequest;
 import com.resergrass.dto.auth.RegisterRequest;
 import com.resergrass.dto.auth.RegistrationResponse;
+import com.resergrass.dto.auth.PasswordResetResponse;
+import com.resergrass.dto.auth.ResetPasswordRequest;
 import com.resergrass.dto.auth.ResendVerificationRequest;
 import com.resergrass.exception.ApiException;
 import com.resergrass.repository.ClientRepository;
@@ -129,6 +132,66 @@ public class AuthService {
         issueVerificationCode(user);
         log.info("AUTH_VERIFICATION_RESENT userId={} email={}", user.getId(), user.getEmail());
         return registrationResponse(user.getEmail(), "Enviamos un nuevo código de verificación");
+    }
+
+    public PasswordResetResponse forgotPassword(ForgotPasswordRequest request) {
+        var email = normalizeEmail(request.email());
+        var genericResponse = passwordResetResponse("Si el correo está registrado, recibirás un código para recuperar tu contraseña");
+        var user = userRepository.findByEmail(email).orElse(null);
+        if (user == null || !user.isEnabled() || !user.isEmailVerified()) {
+            return genericResponse;
+        }
+        var now = OffsetDateTime.now();
+        if (user.getPasswordResetResendAt() != null && now.isBefore(user.getPasswordResetResendAt())) {
+            return genericResponse;
+        }
+        var code = String.format(Locale.ROOT, "%06d", SECURE_RANDOM.nextInt(1_000_000));
+        user.setPasswordResetCode(passwordEncoder.encode(code));
+        user.setPasswordResetExpiresAt(now.plusMinutes(CODE_EXPIRATION_MINUTES));
+        user.setPasswordResetResendAt(now.plusSeconds(RESEND_DELAY_SECONDS));
+        user.setPasswordResetAttempts(0);
+        userRepository.save(user);
+        verificationEmailService.sendPasswordResetCode(user.getEmail(), code);
+        log.info("AUTH_PASSWORD_RESET_CODE_SENT userId={} email={}", user.getId(), user.getEmail());
+        return genericResponse;
+    }
+
+    public PasswordResetResponse resetPassword(ResetPasswordRequest request) {
+        var email = normalizeEmail(request.email());
+        var user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "Código inválido o vencido"));
+        var now = OffsetDateTime.now();
+        if (user.getPasswordResetExpiresAt() == null || !now.isBefore(user.getPasswordResetExpiresAt())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "El código venció. Solicita uno nuevo");
+        }
+        if (user.getPasswordResetAttempts() >= MAX_VERIFICATION_ATTEMPTS) {
+            throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, "Superaste el máximo de intentos. Solicita un código nuevo");
+        }
+        if (!passwordEncoder.matches(request.code(), user.getPasswordResetCode())) {
+            user.setPasswordResetAttempts(user.getPasswordResetAttempts() + 1);
+            userRepository.save(user);
+            var remaining = MAX_VERIFICATION_ATTEMPTS - user.getPasswordResetAttempts();
+            throw new ApiException(HttpStatus.BAD_REQUEST,
+                    remaining > 0 ? "Código incorrecto. Te quedan " + remaining + " intentos"
+                            : "Superaste el máximo de intentos. Solicita un código nuevo");
+        }
+        user.setPassword(passwordEncoder.encode(request.newPassword()));
+        user.setPasswordChangedAt(now);
+        clearPasswordReset(user);
+        userRepository.save(user);
+        log.info("AUTH_PASSWORD_RESET_SUCCESS userId={} email={}", user.getId(), user.getEmail());
+        return new PasswordResetResponse("Tu contraseña fue actualizada. Ya puedes iniciar sesión", 0, 0);
+    }
+
+    private void clearPasswordReset(User user) {
+        user.setPasswordResetCode(null);
+        user.setPasswordResetExpiresAt(null);
+        user.setPasswordResetResendAt(null);
+        user.setPasswordResetAttempts(0);
+    }
+
+    private PasswordResetResponse passwordResetResponse(String message) {
+        return new PasswordResetResponse(message, CODE_EXPIRATION_MINUTES * 60, RESEND_DELAY_SECONDS);
     }
 
     private void issueVerificationCode(User user) {

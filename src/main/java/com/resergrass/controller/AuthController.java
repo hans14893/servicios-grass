@@ -4,9 +4,12 @@ import com.resergrass.domain.entity.User;
 import com.resergrass.dto.UserDto;
 import com.resergrass.dto.auth.AuthResponse;
 import com.resergrass.dto.auth.EmailVerificationRequest;
+import com.resergrass.dto.auth.ForgotPasswordRequest;
 import com.resergrass.dto.auth.LoginRequest;
 import com.resergrass.dto.auth.RegisterRequest;
 import com.resergrass.dto.auth.RegistrationResponse;
+import com.resergrass.dto.auth.PasswordResetResponse;
+import com.resergrass.dto.auth.ResetPasswordRequest;
 import com.resergrass.dto.auth.ResendVerificationRequest;
 import com.resergrass.service.AuthService;
 import jakarta.validation.Valid;
@@ -38,6 +41,16 @@ public class AuthController {
     @PostMapping("/login")
     public AuthResponse login(@Valid @RequestBody LoginRequest request) {
         return authService.login(request);
+    }
+
+    @PostMapping("/forgot-password")
+    public PasswordResetResponse forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+        return authService.forgotPassword(request);
+    }
+
+    @PostMapping("/reset-password")
+    public PasswordResetResponse resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        return authService.resetPassword(request);
     }
 
     @GetMapping("/me")

@@ -71,8 +71,14 @@ public class DataInitializer {
             jdbcTemplate.execute("alter table users add column if not exists email_verification_expires_at timestamp with time zone");
             jdbcTemplate.execute("alter table users add column if not exists email_verification_resend_at timestamp with time zone");
             jdbcTemplate.execute("alter table users add column if not exists email_verification_attempts integer");
+            jdbcTemplate.execute("alter table users add column if not exists password_reset_code varchar(255)");
+            jdbcTemplate.execute("alter table users add column if not exists password_reset_expires_at timestamp with time zone");
+            jdbcTemplate.execute("alter table users add column if not exists password_reset_resend_at timestamp with time zone");
+            jdbcTemplate.execute("alter table users add column if not exists password_reset_attempts integer");
+            jdbcTemplate.execute("alter table users add column if not exists password_changed_at timestamp with time zone");
             jdbcTemplate.execute("update users set email_verified = true where email_verified is null");
             jdbcTemplate.execute("update users set email_verification_attempts = 0 where email_verification_attempts is null");
+            jdbcTemplate.execute("update users set password_reset_attempts = 0 where password_reset_attempts is null");
             jdbcTemplate.execute("alter table users alter column email_verified set default true");
             jdbcTemplate.execute("alter table users alter column email_verified set not null");
             jdbcTemplate.execute("alter table users alter column email_verification_attempts set default 0");

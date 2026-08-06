@@ -44,7 +44,11 @@ public class JwtService {
 
     public boolean isValid(String token, User user) {
         var claims = claims(token);
-        return user.getEmail().equals(claims.getSubject()) && claims.getExpiration().after(new Date());
+        var issuedAt = claims.getIssuedAt().toInstant();
+        var passwordChangedAt = user.getPasswordChangedAt();
+        return user.getEmail().equals(claims.getSubject())
+                && claims.getExpiration().after(new Date())
+                && (passwordChangedAt == null || !issuedAt.isBefore(passwordChangedAt.toInstant()));
     }
 
     private Claims claims(String token) {
