@@ -28,6 +28,7 @@ public class ScheduleService {
     private final AvailableScheduleRepository scheduleRepository;
     private final CourtRepository courtRepository;
     private final ReservationRepository reservationRepository;
+    private final CourtPricingService pricingService;
 
     public List<ScheduleDto> byCourtAndDate(Long courtId, LocalDate date) {
         var schedules = scheduleRepository.findByCourtIdAndDayOfWeekAndActiveTrue(courtId, date.getDayOfWeek())
@@ -84,7 +85,8 @@ public class ScheduleService {
                         reservationName,
                         reservationPhone,
                         canManage && reservation != null ? reservation.getStartTime() : null,
-                        canManage && reservation != null ? reservation.getEndTime() : null
+                        canManage && reservation != null ? reservation.getEndTime() : null,
+                        pricingService.calculatePrice(courtId, date, slotStart, slotEnd)
                 ));
                 cursor = next;
             }

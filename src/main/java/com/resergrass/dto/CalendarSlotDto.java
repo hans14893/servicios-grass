@@ -1,5 +1,6 @@
 package com.resergrass.dto;
 
+import java.math.BigDecimal;
 import java.time.LocalTime;
 
 public record CalendarSlotDto(
@@ -12,6 +13,7 @@ public record CalendarSlotDto(
         String reservationName,
         String reservationPhone,
         LocalTime reservationStartTime,
-        LocalTime reservationEndTime
+        LocalTime reservationEndTime,
+        BigDecimal price
 ) {
 }
