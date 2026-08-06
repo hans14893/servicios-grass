@@ -34,6 +34,21 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
 
     List<Reservation> findByClientUserIdOrderByReservationDateDescStartTimeAsc(Long userId);
 
+    @EntityGraph(attributePaths = {"court"})
+    @Query("""
+            select r from Reservation r
+            where r.client.user.id = :userId
+              and (r.reservationDate > :date or (r.reservationDate = :date and r.endTime > :time))
+              and r.status in :statuses
+            order by r.reservationDate asc, r.startTime asc
+            """)
+    List<Reservation> findUpcomingForUser(
+            @Param("userId") Long userId,
+            @Param("date") LocalDate date,
+            @Param("time") LocalTime time,
+            @Param("statuses") Collection<ReservationStatus> statuses
+    );
+
     List<Reservation> findByCourtIdOrderByReservationDateDescStartTimeAsc(Long courtId);
 
     List<Reservation> findByReservationDateBetweenOrderByReservationDateAscStartTimeAsc(LocalDate from, LocalDate to);

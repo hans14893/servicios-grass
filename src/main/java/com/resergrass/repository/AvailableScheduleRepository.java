@@ -8,6 +8,7 @@ import java.util.List;
 
 public interface AvailableScheduleRepository extends JpaRepository<AvailableSchedule, Long> {
     List<AvailableSchedule> findByCourtIdAndDayOfWeekAndActiveTrue(Long courtId, DayOfWeek dayOfWeek);
+    List<AvailableSchedule> findByDayOfWeekAndActiveTrue(DayOfWeek dayOfWeek);
     List<AvailableSchedule> findByCourtIdOrderByDayOfWeekAscStartTimeAsc(Long courtId);
     void deleteByCourtId(Long courtId);
 }
