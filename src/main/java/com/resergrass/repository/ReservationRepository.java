@@ -3,6 +3,7 @@ package com.resergrass.repository;
 import com.resergrass.domain.entity.Reservation;
 import com.resergrass.domain.enums.ReservationStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -36,6 +37,9 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
     List<Reservation> findByCourtIdOrderByReservationDateDescStartTimeAsc(Long courtId);
 
     List<Reservation> findByReservationDateBetweenOrderByReservationDateAscStartTimeAsc(LocalDate from, LocalDate to);
+
+    @EntityGraph(attributePaths = {"court", "client", "client.user"})
+    List<Reservation> findByReservationDateOrderByStartTimeAsc(LocalDate date);
 
     List<Reservation> findByStatusAndPaymentExpiresAtBefore(ReservationStatus status, OffsetDateTime now);
 }
