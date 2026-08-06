@@ -2,6 +2,8 @@ package com.resergrass.service;
 
 import com.resergrass.domain.entity.CourtPriceRule;
 import com.resergrass.domain.enums.PriceDayType;
+import com.resergrass.dto.PriceBreakdownItemDto;
+import com.resergrass.dto.ReservationQuoteDto;
 import com.resergrass.exception.ApiException;
 import com.resergrass.repository.CourtPriceRuleRepository;
 import lombok.RequiredArgsConstructor;
@@ -14,6 +16,7 @@ import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Comparator;
 
 @Service
@@ -22,10 +25,34 @@ public class CourtPricingService {
     private final CourtPriceRuleRepository priceRuleRepository;
 
     public BigDecimal calculatePrice(Long courtId, LocalDate date, LocalTime startTime, LocalTime endTime) {
-        var rule = findRule(courtId, date, startTime, endTime);
-        var minutes = Math.max(30, ChronoUnit.MINUTES.between(startTime, endTime));
+        return quote(courtId, date, startTime, endTime).totalAmount();
+    }
+
+    public ReservationQuoteDto quote(Long courtId, LocalDate date, LocalTime startTime, LocalTime endTime) {
+        var items = priceItems(courtId, date, startTime, endTime);
+        var total = items.stream().map(PriceBreakdownItemDto::amount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add).setScale(2, RoundingMode.HALF_UP);
+        return new ReservationQuoteDto(courtId, date, startTime, endTime, total, items);
+    }
+
+    private ArrayList<PriceBreakdownItemDto> priceItems(Long courtId, LocalDate date, LocalTime start, LocalTime end) {
+        if (!start.isBefore(end)) throw new ApiException(HttpStatus.BAD_REQUEST, "Rango invalido");
+        var items = new ArrayList<PriceBreakdownItemDto>();
+        var cursor = start;
+        while (cursor.isBefore(end)) {
+            var rule = findRule(courtId, date, cursor);
+            var segmentEnd = end.isBefore(rule.getEndTime()) ? end : rule.getEndTime();
+            if (cursor.plusHours(1).isBefore(segmentEnd)) segmentEnd = cursor.plusHours(1);
+            items.add(new PriceBreakdownItemDto(cursor, segmentEnd, segmentPrice(rule, cursor, segmentEnd)));
+            cursor = segmentEnd;
+        }
+        return items;
+    }
+
+    private BigDecimal segmentPrice(CourtPriceRule rule, LocalTime start, LocalTime end) {
+        var minutes = Math.max(30, ChronoUnit.MINUTES.between(start, end));
         if (minutes == 30 && rule.getHalfHourPrice() != null) {
-            return rule.getHalfHourPrice();
+            return rule.getHalfHourPrice().setScale(2, RoundingMode.HALF_UP);
         }
         var hours = BigDecimal.valueOf(minutes).divide(BigDecimal.valueOf(60), 2, RoundingMode.HALF_UP);
         return rule.getHourlyPrice().multiply(hours).setScale(2, RoundingMode.HALF_UP);
@@ -46,11 +73,11 @@ public class CourtPricingService {
                 .orElse(null);
     }
 
-    private CourtPriceRule findRule(Long courtId, LocalDate date, LocalTime startTime, LocalTime endTime) {
+    private CourtPriceRule findRule(Long courtId, LocalDate date, LocalTime time) {
         var dayType = isWeekend(date.getDayOfWeek()) ? PriceDayType.WEEKEND : PriceDayType.WEEKDAY;
         return priceRuleRepository.findByCourtIdAndActiveTrueOrderByStartTimeAsc(courtId).stream()
                 .filter(rule -> matchesDay(rule, dayType, date.getDayOfWeek()))
-                .filter(rule -> !startTime.isBefore(rule.getStartTime()) && !endTime.isAfter(rule.getEndTime()))
+                .filter(rule -> !time.isBefore(rule.getStartTime()) && time.isBefore(rule.getEndTime()))
                 .findFirst()
                 .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "No existe tarifa configurada para este horario"));
     }

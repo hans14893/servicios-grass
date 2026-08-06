@@ -6,6 +6,8 @@ import com.resergrass.dto.PaymentRequest;
 import com.resergrass.dto.ReportDto;
 import com.resergrass.dto.ReservationDto;
 import com.resergrass.dto.ReservationRequest;
+import com.resergrass.dto.ReservationQuoteDto;
+import com.resergrass.service.CourtPricingService;
 import com.resergrass.service.ReservationService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -15,6 +17,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.List;
 
 @RestController
@@ -22,6 +25,17 @@ import java.util.List;
 @RequiredArgsConstructor
 public class ReservationController {
     private final ReservationService reservationService;
+    private final CourtPricingService pricingService;
+
+    @GetMapping("/quote")
+    public ReservationQuoteDto quote(
+            @RequestParam Long courtId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.TIME) LocalTime startTime,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.TIME) LocalTime endTime
+    ) {
+        return pricingService.quote(courtId, date, startTime, endTime);
+    }
 
     @GetMapping
     @PreAuthorize("hasAnyRole('PERSONAL','ADMIN')")
