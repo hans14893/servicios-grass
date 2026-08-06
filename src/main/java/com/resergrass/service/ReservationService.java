@@ -83,6 +83,13 @@ public class ReservationService {
             log.warn("RESERVATION_CREATE_REJECTED_NO_GUEST actorId={} courtId={}", actor.getId(), court.getId());
             throw new ApiException(HttpStatus.BAD_REQUEST, "Debe indicar el nombre del cliente o visitante");
         }
+        if (client == null && guestPhone == null) {
+            log.warn("RESERVATION_CREATE_REJECTED_NO_GUEST_PHONE actorId={} courtId={}", actor.getId(), court.getId());
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Debe indicar el celular del cliente o visitante");
+        }
+        if (client == null && !guestPhone.matches("^9\\d{8}$")) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "El celular debe tener 9 digitos y comenzar con 9");
+        }
         if (actor.getRole() == Role.CLIENTE && (actorClient == null || !client.getId().equals(actorClient.getId()))) {
             log.warn("RESERVATION_CREATE_REJECTED_FORBIDDEN actorId={} clientId={}", actor.getId(), client.getId());
             throw new ApiException(HttpStatus.FORBIDDEN, "Un cliente solo puede reservar para su propia cuenta");
