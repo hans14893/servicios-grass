@@ -2,6 +2,7 @@ package com.resergrass.service;
 
 import com.resergrass.domain.entity.Payment;
 import com.resergrass.domain.entity.Reservation;
+import com.resergrass.domain.entity.ReservationAudit;
 import com.resergrass.domain.entity.User;
 import com.resergrass.domain.enums.CourtStatus;
 import com.resergrass.domain.enums.PaymentStatus;
@@ -11,6 +12,7 @@ import com.resergrass.dto.PaymentRequest;
 import com.resergrass.dto.ReportDto;
 import com.resergrass.dto.ReservationDto;
 import com.resergrass.dto.ReservationRequest;
+import com.resergrass.dto.ReservationAuditDto;
 import com.resergrass.exception.ApiException;
 import com.resergrass.repository.*;
 import lombok.RequiredArgsConstructor;
@@ -39,6 +41,7 @@ public class ReservationService {
     private final SimpMessagingTemplate messagingTemplate;
     private final CourtPricingService pricingService;
     private final PaymentConfigService paymentConfigService;
+    private final ReservationAuditRepository auditRepository;
 
     public List<ReservationDto> byCourtAndDate(Long courtId, LocalDate date) {
         var reservations = reservationRepository.findByCourtIdAndReservationDateOrderByStartTimeAsc(courtId, date)
@@ -123,22 +126,30 @@ public class ReservationService {
     }
 
     @Transactional
-    public ReservationDto updateStatus(Long id, ReservationStatus status) {
+    public ReservationDto updateStatus(Long id, ReservationStatus status, User actor, String reason) {
         log.info("RESERVATION_STATUS_REQUEST id={} status={}", id, status);
         var reservation = reservationRepository.findById(id)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Reserva no encontrada"));
+        var previousStatus = reservation.getStatus();
+        var paymentStatus = paymentRepository.findByReservationId(id).map(Payment::getStatus).orElse(null);
         reservation.setStatus(status);
+        if (status == ReservationStatus.CANCELADA) {
+            reservation.setCancelledAt(OffsetDateTime.now());
+        }
         var saved = reservationRepository.save(reservation);
+        audit(saved, actor, "RESERVATION_STATUS_CHANGED", previousStatus, saved.getStatus(), paymentStatus, paymentStatus, reason);
         publishAvailability(saved);
         log.info("RESERVATION_STATUS_SUCCESS id={} courtId={} status={}", saved.getId(), saved.getCourt().getId(), saved.getStatus());
         return toDto(saved);
     }
 
     @Transactional
-    public ReservationDto updatePayment(Long reservationId, PaymentRequest request) {
+    public ReservationDto updatePayment(Long reservationId, PaymentRequest request, User actor) {
         log.info("PAYMENT_UPDATE_REQUEST reservationId={} status={} amount={} method={}", reservationId, request.status(), request.paidAmount(), request.method());
         var payment = paymentRepository.findByReservationId(reservationId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Pago no encontrado"));
+        var previousReservationStatus = payment.getReservation().getStatus();
+        var previousPaymentStatus = payment.getStatus();
         payment.setStatus(request.status());
         payment.setPaidAmount(request.paidAmount());
         payment.setMethod(request.method());
@@ -156,17 +167,22 @@ public class ReservationService {
         }
         paymentRepository.save(payment);
         reservationRepository.save(payment.getReservation());
+        audit(payment.getReservation(), actor, "PAYMENT_STATUS_CHANGED",
+                previousReservationStatus, payment.getReservation().getStatus(),
+                previousPaymentStatus, payment.getStatus(), request.rejectionReason());
         publishAvailability(payment.getReservation());
         log.info("PAYMENT_UPDATE_SUCCESS reservationId={} status={} amount={}", reservationId, payment.getStatus(), payment.getPaidAmount());
         return toDto(payment.getReservation());
     }
 
     @Transactional
-    public ReservationDto confirmPayment(Long reservationId, String method) {
+    public ReservationDto confirmPayment(Long reservationId, String method, User actor) {
         var reservation = reservationRepository.findById(reservationId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Reserva no encontrada"));
         var payment = paymentRepository.findByReservationId(reservationId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Pago no encontrado"));
+        var previousReservationStatus = reservation.getStatus();
+        var previousPaymentStatus = payment.getStatus();
         payment.setStatus(PaymentStatus.PAGADO);
         payment.setPaidAmount(reservation.getTotalAmount());
         payment.setMethod(method == null || method.isBlank() ? payment.getMethod() : method);
@@ -174,36 +190,46 @@ public class ReservationService {
         reservation.setStatus(ReservationStatus.CONFIRMADA);
         paymentRepository.save(payment);
         reservationRepository.save(reservation);
+        audit(reservation, actor, "PAYMENT_CONFIRMED", previousReservationStatus, reservation.getStatus(),
+                previousPaymentStatus, payment.getStatus(), method);
         publishAvailability(reservation);
         log.info("PAYMENT_CONFIRM_SUCCESS reservationId={} method={}", reservationId, payment.getMethod());
         return toDto(reservation);
     }
 
     @Transactional
-    public ReservationDto rejectPayment(Long reservationId, String reason) {
+    public ReservationDto rejectPayment(Long reservationId, String reason, User actor) {
         var reservation = reservationRepository.findById(reservationId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Reserva no encontrada"));
         var payment = paymentRepository.findByReservationId(reservationId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Pago no encontrado"));
+        var previousReservationStatus = reservation.getStatus();
+        var previousPaymentStatus = payment.getStatus();
         payment.setStatus(PaymentStatus.RECHAZADO);
         payment.setRejectionReason(reason);
         reservation.setStatus(ReservationStatus.PENDIENTE);
         paymentRepository.save(payment);
         reservationRepository.save(reservation);
+        audit(reservation, actor, "PAYMENT_REJECTED", previousReservationStatus, reservation.getStatus(),
+                previousPaymentStatus, payment.getStatus(), reason);
         publishAvailability(reservation);
         log.warn("PAYMENT_REJECTED reservationId={} reason={}", reservationId, reason);
         return toDto(reservation);
     }
 
     @Transactional
-    public ReservationDto markPayAtVenue(Long reservationId) {
+    public ReservationDto markPayAtVenue(Long reservationId, User actor) {
         var reservation = reservationRepository.findById(reservationId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Reserva no encontrada"));
         var payment = paymentRepository.findByReservationId(reservationId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Pago no encontrado"));
+        var previousReservationStatus = reservation.getStatus();
+        var previousPaymentStatus = payment.getStatus();
         payment.setStatus(PaymentStatus.PAGO_EN_LOCAL);
         payment.setMethod("PAGO_EN_LOCAL");
         paymentRepository.save(payment);
+        audit(reservation, actor, "PAYMENT_MARKED_AT_VENUE", previousReservationStatus, reservation.getStatus(),
+                previousPaymentStatus, payment.getStatus(), "Pago en local");
         publishAvailability(reservation);
         log.info("PAYMENT_MARK_LOCAL reservationId={}", reservationId);
         return toDto(reservation);
@@ -221,6 +247,74 @@ public class ReservationService {
                 reservations.stream().filter(r -> r.getStatus() == ReservationStatus.CANCELADA).count(),
                 totalIncome
         );
+    }
+
+    @Transactional
+    public ReservationDto restore(Long id, User actor, String reason) {
+        var reservation = reservationRepository.findById(id)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Reserva no encontrada"));
+        if (reservation.getStatus() != ReservationStatus.CANCELADA) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "Solo se puede restaurar una reserva cancelada");
+        }
+        courtRepository.findLockedById(reservation.getCourt().getId())
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Cancha no encontrada"));
+        var occupied = reservationRepository.existsOverlappingReservation(
+                reservation.getCourt().getId(), reservation.getReservationDate(),
+                reservation.getStartTime(), reservation.getEndTime(),
+                List.of(ReservationStatus.PENDIENTE, ReservationStatus.CONFIRMADA)
+        );
+        if (occupied) {
+            throw new ApiException(HttpStatus.CONFLICT, "No se puede restaurar porque el horario ya fue ocupado");
+        }
+        var payment = paymentRepository.findByReservationId(id).orElse(null);
+        var paymentStatus = payment == null ? PaymentStatus.PENDIENTE_PAGO : payment.getStatus();
+        var previousStatus = reservation.getStatus();
+        reservation.setStatus(paymentStatus == PaymentStatus.PAGADO ? ReservationStatus.CONFIRMADA : ReservationStatus.PENDIENTE);
+        reservation.setCancelledAt(null);
+        if (paymentStatus != PaymentStatus.PAGADO) {
+            reservation.setPaymentExpiresAt(OffsetDateTime.now().plusMinutes(paymentConfigService.timeoutMinutes()));
+        }
+        var saved = reservationRepository.save(reservation);
+        audit(saved, actor, "RESERVATION_RESTORED", previousStatus, saved.getStatus(),
+                paymentStatus, paymentStatus, reason);
+        publishAvailability(saved);
+        return toDto(saved);
+    }
+
+    public List<ReservationAuditDto> history(Long reservationId) {
+        if (!reservationRepository.existsById(reservationId)) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "Reserva no encontrada");
+        }
+        return auditRepository.findByReservationIdOrderByChangedAtDesc(reservationId).stream()
+                .map(item -> new ReservationAuditDto(
+                        item.getId(), item.getAction(),
+                        item.getChangedBy() == null ? "SISTEMA" : item.getChangedBy().getFullName(),
+                        item.getPreviousReservationStatus(), item.getNewReservationStatus(),
+                        item.getPreviousPaymentStatus(), item.getNewPaymentStatus(),
+                        item.getReason(), item.getChangedAt()
+                )).toList();
+    }
+
+    private void audit(
+            Reservation reservation,
+            User actor,
+            String action,
+            ReservationStatus previousReservationStatus,
+            ReservationStatus newReservationStatus,
+            PaymentStatus previousPaymentStatus,
+            PaymentStatus newPaymentStatus,
+            String reason
+    ) {
+        var entry = new ReservationAudit();
+        entry.setReservation(reservation);
+        entry.setChangedBy(actor);
+        entry.setAction(action);
+        entry.setPreviousReservationStatus(previousReservationStatus);
+        entry.setNewReservationStatus(newReservationStatus);
+        entry.setPreviousPaymentStatus(previousPaymentStatus);
+        entry.setNewPaymentStatus(newPaymentStatus);
+        entry.setReason(normalize(reason));
+        auditRepository.save(entry);
     }
 
     private void validateRange(ReservationRequest request) {
@@ -292,9 +386,12 @@ public class ReservationService {
         reservations.forEach(reservation -> {
             var paymentStatus = paymentRepository.findByReservationId(reservation.getId()).map(Payment::getStatus).orElse(PaymentStatus.PENDIENTE_PAGO);
             if (paymentStatus == PaymentStatus.PENDIENTE_PAGO || paymentStatus == PaymentStatus.RECHAZADO) {
+                var previousStatus = reservation.getStatus();
                 reservation.setStatus(ReservationStatus.CANCELADA);
                 reservation.setCancelledAt(now);
                 reservationRepository.save(reservation);
+                audit(reservation, null, "RESERVATION_AUTO_CANCELLED", previousStatus, reservation.getStatus(),
+                        paymentStatus, paymentStatus, "Tiempo de pago vencido");
                 publishAvailability(reservation);
                 log.warn("RESERVATION_AUTO_CANCELLED_EXPIRED id={} courtId={} expiresAt={}", reservation.getId(), reservation.getCourt().getId(), reservation.getPaymentExpiresAt());
             }

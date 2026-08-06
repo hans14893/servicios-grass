@@ -7,6 +7,7 @@ import com.resergrass.dto.ReportDto;
 import com.resergrass.dto.ReservationDto;
 import com.resergrass.dto.ReservationRequest;
 import com.resergrass.dto.ReservationQuoteDto;
+import com.resergrass.dto.ReservationAuditDto;
 import com.resergrass.service.CourtPricingService;
 import com.resergrass.service.ReservationService;
 import jakarta.validation.Valid;
@@ -59,32 +60,49 @@ public class ReservationController {
 
     @PatchMapping("/{id}/status")
     @PreAuthorize("hasAnyRole('PERSONAL','ADMIN')")
-    public ReservationDto updateStatus(@PathVariable Long id, @RequestParam ReservationStatus status) {
-        return reservationService.updateStatus(id, status);
+    public ReservationDto updateStatus(
+            @PathVariable Long id,
+            @RequestParam ReservationStatus status,
+            @RequestParam(required = false) String reason,
+            @AuthenticationPrincipal User actor
+    ) {
+        return reservationService.updateStatus(id, status, actor, reason);
     }
 
     @PatchMapping("/{id}/payment")
     @PreAuthorize("hasAnyRole('PERSONAL','ADMIN')")
-    public ReservationDto updatePayment(@PathVariable Long id, @Valid @RequestBody PaymentRequest request) {
-        return reservationService.updatePayment(id, request);
+    public ReservationDto updatePayment(@PathVariable Long id, @Valid @RequestBody PaymentRequest request, @AuthenticationPrincipal User actor) {
+        return reservationService.updatePayment(id, request, actor);
     }
 
     @PatchMapping("/{id}/payment/confirm")
     @PreAuthorize("hasAnyRole('PERSONAL','ADMIN')")
-    public ReservationDto confirmPayment(@PathVariable Long id, @RequestParam(required = false) String method) {
-        return reservationService.confirmPayment(id, method);
+    public ReservationDto confirmPayment(@PathVariable Long id, @RequestParam(required = false) String method, @AuthenticationPrincipal User actor) {
+        return reservationService.confirmPayment(id, method, actor);
     }
 
     @PatchMapping("/{id}/payment/reject")
     @PreAuthorize("hasAnyRole('PERSONAL','ADMIN')")
-    public ReservationDto rejectPayment(@PathVariable Long id, @RequestParam String reason) {
-        return reservationService.rejectPayment(id, reason);
+    public ReservationDto rejectPayment(@PathVariable Long id, @RequestParam String reason, @AuthenticationPrincipal User actor) {
+        return reservationService.rejectPayment(id, reason, actor);
     }
 
     @PatchMapping("/{id}/payment/local")
     @PreAuthorize("hasAnyRole('PERSONAL','ADMIN')")
-    public ReservationDto markPayAtVenue(@PathVariable Long id) {
-        return reservationService.markPayAtVenue(id);
+    public ReservationDto markPayAtVenue(@PathVariable Long id, @AuthenticationPrincipal User actor) {
+        return reservationService.markPayAtVenue(id, actor);
+    }
+
+    @PatchMapping("/{id}/restore")
+    @PreAuthorize("hasAnyRole('PERSONAL','ADMIN')")
+    public ReservationDto restore(@PathVariable Long id, @RequestParam(required = false) String reason, @AuthenticationPrincipal User actor) {
+        return reservationService.restore(id, actor, reason);
+    }
+
+    @GetMapping("/{id}/history")
+    @PreAuthorize("hasAnyRole('PERSONAL','ADMIN')")
+    public List<ReservationAuditDto> history(@PathVariable Long id) {
+        return reservationService.history(id);
     }
 
     @GetMapping("/reports")
