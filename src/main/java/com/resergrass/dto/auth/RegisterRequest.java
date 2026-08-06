@@ -6,9 +6,18 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 public record RegisterRequest(
-        @NotBlank @Size(min = 3, max = 120) String fullName,
+        @NotBlank
+        @Size(min = 3, max = 120)
+        @Pattern(regexp = "^[\\p{L}]+(?:[ '\\-][\\p{L}]+)*$", message = "El nombre solo puede contener letras, espacios, apóstrofes o guiones")
+        String fullName,
         @NotBlank @Email @Size(max = 160) String email,
-        @NotBlank @Size(min = 8, max = 80) String password,
+        @NotBlank
+        @Size(min = 8, max = 80)
+        @Pattern(
+                regexp = "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d).{8,80}$",
+                message = "La contraseña debe incluir mayúscula, minúscula y número"
+        )
+        String password,
         @NotBlank @Pattern(regexp = "9\\d{8}", message = "El celular debe tener 9 dígitos y comenzar con 9") String phone,
         @Size(max = 20) String documentNumber,
         @Size(max = 200) String address
