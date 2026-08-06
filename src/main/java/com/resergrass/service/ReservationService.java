@@ -260,6 +260,7 @@ public class ReservationService {
                 reservation.getId(),
                 client == null ? null : client.getId(),
                 client == null ? reservation.getGuestName() : client.getUser().getFullName(),
+                client == null ? reservation.getGuestPhone() : client.getUser().getPhone(),
                 reservation.getGuestPhone(),
                 reservation.getCourt().getId(),
                 reservation.getCourt().getName(),

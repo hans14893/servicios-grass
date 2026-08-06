@@ -2,6 +2,8 @@ package com.resergrass.service;
 
 import com.resergrass.domain.enums.CourtStatus;
 import com.resergrass.domain.enums.ReservationStatus;
+import com.resergrass.domain.enums.Role;
+import com.resergrass.domain.entity.User;
 import com.resergrass.dto.CalendarSlotDto;
 import com.resergrass.domain.entity.AvailableSchedule;
 import com.resergrass.dto.ScheduleDto;
@@ -34,7 +36,7 @@ public class ScheduleService {
         return schedules;
     }
 
-    public List<CalendarSlotDto> calendar(Long courtId, LocalDate date) {
+    public List<CalendarSlotDto> calendar(Long courtId, LocalDate date, User actor) {
         log.info("CALENDAR_REQUEST courtId={} date={}", courtId, date);
         var court = courtRepository.findById(courtId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Cancha no encontrada"));
@@ -51,6 +53,8 @@ public class ScheduleService {
                 var slotStart = cursor;
                 var slotEnd = next;
                 var reservation = reservations.stream()
+                        .filter(item -> item.getStatus() == ReservationStatus.PENDIENTE
+                                || item.getStatus() == ReservationStatus.CONFIRMADA)
                         .filter(item -> item.getStartTime().isBefore(slotEnd) && item.getEndTime().isAfter(slotStart))
                         .findFirst()
                         .orElse(null);
@@ -62,7 +66,26 @@ public class ScheduleService {
                         : reservation == null
                         ? "DISPONIBLE"
                         : reservation.getStatus() == ReservationStatus.PENDIENTE ? "PENDIENTE" : "RESERVADO";
-                scheduleSlots.add(new CalendarSlotDto(court.getId(), court.getName(), slotStart, slotEnd, status, reservation == null ? null : reservation.getId()));
+                var canManage = actor != null && (actor.getRole() == Role.ADMIN || actor.getRole() == Role.PERSONAL);
+                var client = reservation == null ? null : reservation.getClient();
+                var reservationName = canManage && reservation != null
+                        ? client == null ? reservation.getGuestName() : client.getUser().getFullName()
+                        : null;
+                var reservationPhone = canManage && reservation != null
+                        ? client == null ? reservation.getGuestPhone() : client.getUser().getPhone()
+                        : null;
+                scheduleSlots.add(new CalendarSlotDto(
+                        court.getId(),
+                        court.getName(),
+                        slotStart,
+                        slotEnd,
+                        status,
+                        reservation == null ? null : reservation.getId(),
+                        reservationName,
+                        reservationPhone,
+                        canManage && reservation != null ? reservation.getStartTime() : null,
+                        canManage && reservation != null ? reservation.getEndTime() : null
+                ));
                 cursor = next;
             }
             return scheduleSlots.stream();

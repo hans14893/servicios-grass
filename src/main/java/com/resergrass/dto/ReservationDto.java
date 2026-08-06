@@ -12,6 +12,7 @@ public record ReservationDto(
         Long id,
         Long clientId,
         String clientName,
+        String contactPhone,
         String guestPhone,
         Long courtId,
         String courtName,

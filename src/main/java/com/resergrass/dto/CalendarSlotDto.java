@@ -8,6 +8,10 @@ public record CalendarSlotDto(
         LocalTime startTime,
         LocalTime endTime,
         String status,
-        Long reservationId
+        Long reservationId,
+        String reservationName,
+        String reservationPhone,
+        LocalTime reservationStartTime,
+        LocalTime reservationEndTime
 ) {
 }
