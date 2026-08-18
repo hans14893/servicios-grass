@@ -9,6 +9,7 @@ import com.resergrass.dto.auth.LoginRequest;
 import com.resergrass.dto.auth.RegisterRequest;
 import com.resergrass.dto.auth.RegistrationResponse;
 import com.resergrass.dto.auth.PasswordResetResponse;
+import com.resergrass.dto.auth.RefreshTokenRequest;
 import com.resergrass.dto.auth.ResetPasswordRequest;
 import com.resergrass.dto.auth.ResendVerificationRequest;
 import com.resergrass.service.AuthService;
@@ -51,6 +52,16 @@ public class AuthController {
     @PostMapping("/reset-password")
     public PasswordResetResponse resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
         return authService.resetPassword(request);
+    }
+
+    @PostMapping("/refresh")
+    public AuthResponse refresh(@Valid @RequestBody RefreshTokenRequest request) {
+        return authService.refresh(request);
+    }
+
+    @PostMapping("/logout")
+    public void logout(@Valid @RequestBody RefreshTokenRequest request) {
+        authService.logout(request);
     }
 
     @GetMapping("/me")

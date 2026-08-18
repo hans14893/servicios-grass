@@ -12,6 +12,7 @@ import com.resergrass.exception.ApiException;
 import com.resergrass.repository.AvailableScheduleRepository;
 import com.resergrass.repository.CourtRepository;
 import com.resergrass.repository.ReservationRepository;
+import com.resergrass.repository.PaymentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -28,6 +29,7 @@ public class ScheduleService {
     private final AvailableScheduleRepository scheduleRepository;
     private final CourtRepository courtRepository;
     private final ReservationRepository reservationRepository;
+    private final PaymentRepository paymentRepository;
     private final CourtPricingService pricingService;
 
     public List<ScheduleDto> byCourtAndDate(Long courtId, LocalDate date) {
@@ -75,6 +77,13 @@ public class ScheduleService {
                 var reservationPhone = canManage && reservation != null
                         ? client == null ? reservation.getGuestPhone() : client.getUser().getPhone()
                         : null;
+                var payment = reservation == null ? null : paymentRepository.findByReservationId(reservation.getId()).orElse(null);
+                var totalAmount = canManage && reservation != null ? reservation.getTotalAmount() : null;
+                var paidAmount = canManage && payment != null ? payment.getPaidAmount() : null;
+                var pendingAmount = canManage && reservation != null
+                        ? reservation.getTotalAmount().subtract(payment == null ? java.math.BigDecimal.ZERO : payment.getPaidAmount())
+                                .max(java.math.BigDecimal.ZERO)
+                        : null;
                 scheduleSlots.add(new CalendarSlotDto(
                         court.getId(),
                         court.getName(),
@@ -86,6 +95,10 @@ public class ScheduleService {
                         reservationPhone,
                         canManage && reservation != null ? reservation.getStartTime() : null,
                         canManage && reservation != null ? reservation.getEndTime() : null,
+                        totalAmount,
+                        paidAmount,
+                        pendingAmount,
+                        canManage && payment != null ? payment.getStatus().name() : null,
                         pricingService.calculatePrice(courtId, date, slotStart, slotEnd)
                 ));
                 cursor = next;

@@ -112,12 +112,23 @@ public class ReservationService {
         reservation.setEndTime(request.endTime());
         reservation.setNotes(request.notes());
         reservation.setTotalAmount(pricingService.calculatePrice(court.getId(), request.reservationDate(), request.startTime(), request.endTime()));
-        reservation.setPaymentExpiresAt(OffsetDateTime.now().plusMinutes(paymentConfigService.timeoutMinutes()));
+        var internalBooking = actor.getRole() == Role.ADMIN || actor.getRole() == Role.PERSONAL;
+        reservation.setStatus(internalBooking ? ReservationStatus.CONFIRMADA : ReservationStatus.PENDIENTE);
+        reservation.setPaymentExpiresAt(internalBooking ? null : OffsetDateTime.now().plusMinutes(paymentConfigService.timeoutMinutes()));
         var saved = reservationRepository.save(reservation);
 
+        var advanceAmount = request.advanceAmount() == null ? BigDecimal.ZERO : request.advanceAmount();
+        if (advanceAmount.signum() < 0 || advanceAmount.compareTo(saved.getTotalAmount()) > 0) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "El adelanto debe estar entre cero y el total de la reserva");
+        }
         var payment = new Payment();
         payment.setReservation(saved);
-        payment.setStatus(PaymentStatus.PENDIENTE_PAGO);
+        payment.setPaidAmount(advanceAmount);
+        payment.setMethod(normalize(request.paymentMethod()));
+        payment.setStatus(advanceAmount.signum() == 0
+                ? PaymentStatus.PENDIENTE_PAGO
+                : advanceAmount.compareTo(saved.getTotalAmount()) >= 0 ? PaymentStatus.PAGADO : PaymentStatus.ADELANTO);
+        if (advanceAmount.signum() > 0) payment.setPaidAt(OffsetDateTime.now());
         paymentRepository.save(payment);
         publishAvailability(saved);
         log.info("RESERVATION_CREATE_SUCCESS id={} courtId={} clientId={} guestName={} total={} status={}",
@@ -155,6 +166,12 @@ public class ReservationService {
         payment.setMethod(request.method());
         payment.setRejectionReason(request.rejectionReason());
         payment.setOperationNumber(request.operationNumber());
+        if (request.paidAmount().compareTo(payment.getReservation().getTotalAmount()) > 0) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "El monto pagado no puede superar el total de la reserva");
+        }
+        if (request.paidAmount().signum() > 0 && request.paidAmount().compareTo(payment.getReservation().getTotalAmount()) < 0) {
+            payment.setStatus(PaymentStatus.ADELANTO);
+        }
         if (request.status() == PaymentStatus.PAGADO) {
             payment.setPaidAt(java.time.OffsetDateTime.now());
             payment.getReservation().setStatus(ReservationStatus.CONFIRMADA);
@@ -356,6 +373,7 @@ public class ReservationService {
     private ReservationDto toDto(Reservation reservation) {
         var payment = paymentRepository.findByReservationId(reservation.getId()).orElse(null);
         var paymentStatus = payment == null ? PaymentStatus.PENDIENTE_PAGO : payment.getStatus();
+        var paidAmount = payment == null ? BigDecimal.ZERO : payment.getPaidAmount();
         var client = reservation.getClient();
         return new ReservationDto(
                 reservation.getId(),
@@ -370,6 +388,8 @@ public class ReservationService {
                 reservation.getEndTime(),
                 reservation.getStatus(),
                 reservation.getTotalAmount(),
+                paidAmount,
+                reservation.getTotalAmount().subtract(paidAmount).max(BigDecimal.ZERO),
                 paymentStatus,
                 reservation.getPaymentExpiresAt(),
                 payment == null ? null : payment.getMethod(),

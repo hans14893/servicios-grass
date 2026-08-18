@@ -1,5 +1,6 @@
 package com.resergrass.service;
 
+import com.resergrass.domain.entity.RefreshSession;
 import com.resergrass.domain.entity.Client;
 import com.resergrass.domain.entity.User;
 import com.resergrass.domain.enums.Role;
@@ -10,6 +11,7 @@ import com.resergrass.dto.auth.ForgotPasswordRequest;
 import com.resergrass.dto.auth.LoginRequest;
 import com.resergrass.dto.auth.RegisterRequest;
 import com.resergrass.dto.auth.RegistrationResponse;
+import com.resergrass.dto.auth.RefreshTokenRequest;
 import com.resergrass.dto.auth.PasswordResetResponse;
 import com.resergrass.dto.auth.ResetPasswordRequest;
 import com.resergrass.dto.auth.ResendVerificationRequest;
@@ -17,6 +19,7 @@ import com.resergrass.exception.ApiException;
 import com.resergrass.repository.ClientRepository;
 import com.resergrass.repository.UserRepository;
 import com.resergrass.security.JwtService;
+import com.resergrass.repository.RefreshSessionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -28,6 +31,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
 import java.time.OffsetDateTime;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.Base64;
+import java.util.HexFormat;
 import java.time.temporal.ChronoUnit;
 import java.util.Locale;
 
@@ -40,10 +47,12 @@ public class AuthService {
     private static final int MAX_VERIFICATION_ATTEMPTS = 5;
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
+    private static final int REFRESH_EXPIRATION_DAYS = 90;
     private final UserRepository userRepository;
     private final ClientRepository clientRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
+    private final RefreshSessionRepository refreshSessionRepository;
     private final JwtService jwtService;
     private final VerificationEmailService verificationEmailService;
 
@@ -76,6 +85,7 @@ public class AuthService {
         return registrationResponse(user.getEmail(), "Enviamos un código de verificación a tu correo");
     }
 
+    @Transactional
     public AuthResponse login(LoginRequest request) {
         var email = normalizeEmail(request.email());
         log.info("AUTH_LOGIN_REQUEST email={}", email);
@@ -156,6 +166,7 @@ public class AuthService {
         return genericResponse;
     }
 
+    @Transactional
     public PasswordResetResponse resetPassword(ResetPasswordRequest request) {
         var email = normalizeEmail(request.email());
         var user = userRepository.findByEmail(email)
@@ -179,6 +190,7 @@ public class AuthService {
         user.setPasswordChangedAt(now);
         clearPasswordReset(user);
         userRepository.save(user);
+        refreshSessionRepository.revokeAllByUserId(user.getId());
         log.info("AUTH_PASSWORD_RESET_SUCCESS userId={} email={}", user.getId(), user.getEmail());
         return new PasswordResetResponse("Tu contraseña fue actualizada. Ya puedes iniciar sesión", 0, 0);
     }
@@ -220,9 +232,55 @@ public class AuthService {
         return email.trim().toLowerCase(Locale.ROOT);
     }
 
-    private AuthResponse response(User user) {
-        return new AuthResponse(jwtService.generate(user), user.getId(), user.getFullName(), user.getEmail(), user.getRole());
+    @Transactional
+    public AuthResponse refresh(RefreshTokenRequest request) {
+        var session = refreshSessionRepository.findByTokenHash(hashToken(request.refreshToken()))
+                .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "Sesión vencida. Inicia sesión nuevamente"));
+        var now = OffsetDateTime.now();
+        if (session.isRevoked() || !now.isBefore(session.getExpiresAt()) || !session.getUser().isEnabled()) {
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "Sesión vencida. Inicia sesión nuevamente");
+        }
+        session.setRevoked(true);
+        session.setRevokedAt(now);
+        session.setLastUsedAt(now);
+        refreshSessionRepository.save(session);
+        return response(session.getUser());
     }
+
+    @Transactional
+    public void logout(RefreshTokenRequest request) {
+        refreshSessionRepository.findByTokenHash(hashToken(request.refreshToken())).ifPresent(session -> {
+            session.setRevoked(true);
+            session.setRevokedAt(OffsetDateTime.now());
+            refreshSessionRepository.save(session);
+        });
+    }
+
+    private AuthResponse response(User user) {
+        var refreshToken = newRefreshToken();
+        var session = new RefreshSession();
+        session.setUser(user);
+        session.setTokenHash(hashToken(refreshToken));
+        session.setExpiresAt(OffsetDateTime.now().plusDays(REFRESH_EXPIRATION_DAYS));
+        refreshSessionRepository.save(session);
+        return new AuthResponse(jwtService.generate(user), user.getId(), refreshToken, user.getFullName(), user.getEmail(), user.getRole());
+    }
+
+    private String newRefreshToken() {
+        var bytes = new byte[32];
+        SECURE_RANDOM.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    private String hashToken(String token) {
+        try {
+            var digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(token.getBytes(StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 no disponible", exception);
+        }
+    }
+
 
     public UserDto toDto(User user) {
         return new UserDto(user.getId(), user.getFullName(), user.getEmail(), user.getPhone(), user.getRole(), user.isEnabled());

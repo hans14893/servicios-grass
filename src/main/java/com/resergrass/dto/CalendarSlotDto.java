@@ -14,6 +14,10 @@ public record CalendarSlotDto(
         String reservationPhone,
         LocalTime reservationStartTime,
         LocalTime reservationEndTime,
+        BigDecimal totalAmount,
+        BigDecimal paidAmount,
+        BigDecimal pendingAmount,
+        String paymentStatus,
         BigDecimal price
 ) {
 }

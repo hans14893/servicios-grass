@@ -21,6 +21,8 @@ public record ReservationDto(
         LocalTime endTime,
         ReservationStatus status,
         BigDecimal totalAmount,
+        BigDecimal paidAmount,
+        BigDecimal pendingAmount,
         PaymentStatus paymentStatus,
         OffsetDateTime paymentExpiresAt,
         String paymentMethod,

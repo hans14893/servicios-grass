@@ -3,6 +3,7 @@ package com.resergrass.dto;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalTime;
 
@@ -14,6 +15,8 @@ public record ReservationRequest(
         @NotNull LocalDate reservationDate,
         @NotNull LocalTime startTime,
         @NotNull LocalTime endTime,
+        BigDecimal advanceAmount,
+        @Size(max = 50) String paymentMethod,
         @Size(max = 300) String notes
 ) {
 }
