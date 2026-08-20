@@ -47,21 +47,33 @@ public class ScheduleService {
         var reservations = reservationRepository.findByCourtIdAndReservationDateOrderByStartTimeAsc(courtId, date);
         var slots = schedules.stream().flatMap(schedule -> {
             var scheduleSlots = new java.util.ArrayList<CalendarSlotDto>();
-            var cursor = schedule.getStartTime();
-            while (cursor.isBefore(schedule.getEndTime())) {
+            var cursor = LocalDateTime.of(date, schedule.getStartTime());
+            var scheduleEnd = LocalDateTime.of(date, schedule.getEndTime());
+            if (!scheduleEnd.isAfter(cursor)) scheduleEnd = scheduleEnd.plusDays(1);
+            while (cursor.isBefore(scheduleEnd)) {
                 var next = cursor.plusHours(1);
-                if (next.isAfter(schedule.getEndTime())) {
-                    next = schedule.getEndTime();
+                if (next.isAfter(scheduleEnd)) {
+                    next = scheduleEnd;
                 }
-                var slotStart = cursor;
-                var slotEnd = next;
+                var slotStartDateTime = cursor;
+                var slotEndDateTime = next;
+                var slotStart = cursor.toLocalTime();
+                var slotEnd = next.toLocalTime();
                 var reservation = reservations.stream()
                         .filter(item -> item.getStatus() == ReservationStatus.PENDIENTE
                                 || item.getStatus() == ReservationStatus.CONFIRMADA)
-                        .filter(item -> item.getStartTime().isBefore(slotEnd) && item.getEndTime().isAfter(slotStart))
+                        .filter(item -> {
+                            var reservationStart = LocalDateTime.of(date, item.getStartTime());
+                            if (reservationStart.isBefore(LocalDateTime.of(date, schedule.getStartTime()))) {
+                                reservationStart = reservationStart.plusDays(1);
+                            }
+                            var reservationEnd = LocalDateTime.of(reservationStart.toLocalDate(), item.getEndTime());
+                            if (!reservationEnd.isAfter(reservationStart)) reservationEnd = reservationEnd.plusDays(1);
+                            return reservationStart.isBefore(slotEndDateTime) && reservationEnd.isAfter(slotStartDateTime);
+                        })
                         .findFirst()
                         .orElse(null);
-                var slotIsPast = !LocalDateTime.of(date, slotStart).isAfter(LocalDateTime.now());
+                var slotIsPast = !slotStartDateTime.isAfter(LocalDateTime.now());
                 var status = slotIsPast
                         ? "NO_DISPONIBLE"
                         : court.getStatus() == CourtStatus.MANTENIMIENTO
@@ -126,8 +138,8 @@ public class ScheduleService {
     }
 
     private void validateTimes(ScheduleRequest request) {
-        if (!request.startTime().isBefore(request.endTime())) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "La hora de inicio debe ser menor que la hora fin");
+        if (request.startTime().equals(request.endTime())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "La hora de inicio y fin no pueden ser iguales");
         }
     }
 

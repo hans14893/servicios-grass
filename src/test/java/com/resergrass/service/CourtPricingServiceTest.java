@@ -31,6 +31,23 @@ class CourtPricingServiceTest {
                 .containsExactly(new BigDecimal("60.00"), new BigDecimal("80.00"), new BigDecimal("80.00"));
     }
 
+    @Test
+    void quotesHoursThatContinueAfterMidnight() {
+        var repository = mock(CourtPriceRuleRepository.class);
+        when(repository.findByCourtIdAndActiveTrueOrderByStartTimeAsc(1L))
+                .thenReturn(List.of(rule("17:00", "01:00", "70")));
+
+        var quote = new CourtPricingService(repository).quote(
+                1L, LocalDate.of(2026, 8, 19), LocalTime.of(23, 0), LocalTime.of(1, 0)
+        );
+
+        assertThat(quote.totalAmount()).isEqualByComparingTo("140.00");
+        assertThat(quote.breakdown()).extracting(item -> item.startTime())
+                .containsExactly(LocalTime.of(23, 0), LocalTime.MIDNIGHT);
+        assertThat(quote.breakdown()).extracting(item -> item.endTime())
+                .containsExactly(LocalTime.MIDNIGHT, LocalTime.of(1, 0));
+    }
+
     private CourtPriceRule rule(String start, String end, String price) {
         var rule = new CourtPriceRule();
         rule.setDayType(PriceDayType.WEEKDAY);

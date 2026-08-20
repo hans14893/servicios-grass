@@ -234,8 +234,8 @@ public class CourtService {
     }
 
     private void validateTimeRange(LocalTime startTime, LocalTime endTime) {
-        if (startTime == null || endTime == null || !startTime.isBefore(endTime)) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "La hora de inicio debe ser menor que la hora fin");
+        if (startTime == null || endTime == null || startTime.equals(endTime)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "La hora de inicio y fin no pueden ser iguales");
         }
     }
 

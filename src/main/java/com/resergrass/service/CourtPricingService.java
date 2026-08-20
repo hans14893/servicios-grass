@@ -14,6 +14,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -36,20 +37,25 @@ public class CourtPricingService {
     }
 
     private ArrayList<PriceBreakdownItemDto> priceItems(Long courtId, LocalDate date, LocalTime start, LocalTime end) {
-        if (!start.isBefore(end)) throw new ApiException(HttpStatus.BAD_REQUEST, "Rango invalido");
+        if (start.equals(end)) throw new ApiException(HttpStatus.BAD_REQUEST, "Rango invalido");
         var items = new ArrayList<PriceBreakdownItemDto>();
-        var cursor = start;
-        while (cursor.isBefore(end)) {
-            var rule = findRule(courtId, date, cursor);
-            var segmentEnd = end.isBefore(rule.getEndTime()) ? end : rule.getEndTime();
-            if (cursor.plusHours(1).isBefore(segmentEnd)) segmentEnd = cursor.plusHours(1);
-            items.add(new PriceBreakdownItemDto(cursor, segmentEnd, segmentPrice(rule, cursor, segmentEnd)));
+        var cursor = LocalDateTime.of(date, start);
+        var rangeEnd = LocalDateTime.of(date, end);
+        if (!rangeEnd.isAfter(cursor)) rangeEnd = rangeEnd.plusDays(1);
+        while (cursor.isBefore(rangeEnd)) {
+            var rule = findRule(courtId, date, cursor.toLocalTime());
+            var ruleEnd = LocalDateTime.of(cursor.toLocalDate(), rule.getEndTime());
+            if (!ruleEnd.isAfter(cursor)) ruleEnd = ruleEnd.plusDays(1);
+            var segmentEnd = cursor.plusHours(1);
+            if (rangeEnd.isBefore(segmentEnd)) segmentEnd = rangeEnd;
+            if (ruleEnd.isBefore(segmentEnd)) segmentEnd = ruleEnd;
+            items.add(new PriceBreakdownItemDto(cursor.toLocalTime(), segmentEnd.toLocalTime(), segmentPrice(rule, cursor, segmentEnd)));
             cursor = segmentEnd;
         }
         return items;
     }
 
-    private BigDecimal segmentPrice(CourtPriceRule rule, LocalTime start, LocalTime end) {
+    private BigDecimal segmentPrice(CourtPriceRule rule, LocalDateTime start, LocalDateTime end) {
         var minutes = Math.max(30, ChronoUnit.MINUTES.between(start, end));
         if (minutes == 30 && rule.getHalfHourPrice() != null) {
             return rule.getHalfHourPrice().setScale(2, RoundingMode.HALF_UP);
@@ -77,9 +83,16 @@ public class CourtPricingService {
         var dayType = isWeekend(date.getDayOfWeek()) ? PriceDayType.WEEKEND : PriceDayType.WEEKDAY;
         return priceRuleRepository.findByCourtIdAndActiveTrueOrderByStartTimeAsc(courtId).stream()
                 .filter(rule -> matchesDay(rule, dayType, date.getDayOfWeek()))
-                .filter(rule -> !time.isBefore(rule.getStartTime()) && time.isBefore(rule.getEndTime()))
+                .filter(rule -> matchesTime(rule, time))
                 .findFirst()
                 .orElseThrow(() -> new ApiException(HttpStatus.BAD_REQUEST, "No existe tarifa configurada para este horario"));
+    }
+
+    private boolean matchesTime(CourtPriceRule rule, LocalTime time) {
+        if (rule.getStartTime().isBefore(rule.getEndTime())) {
+            return !time.isBefore(rule.getStartTime()) && time.isBefore(rule.getEndTime());
+        }
+        return !time.isBefore(rule.getStartTime()) || time.isBefore(rule.getEndTime());
     }
 
     private boolean matchesDay(CourtPriceRule rule, PriceDayType dayType, DayOfWeek dayOfWeek) {

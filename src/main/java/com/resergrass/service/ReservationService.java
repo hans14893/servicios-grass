@@ -331,8 +331,8 @@ public class ReservationService {
     }
 
     private void validateRange(ReservationRequest request) {
-        if (!request.startTime().isBefore(request.endTime())) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "La hora de inicio debe ser menor que la hora fin");
+        if (request.startTime().equals(request.endTime())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "La hora de inicio y fin no pueden ser iguales");
         }
         var reservationStart = LocalDateTime.of(request.reservationDate(), request.startTime());
         if (!reservationStart.isAfter(LocalDateTime.now())) {
@@ -341,13 +341,17 @@ public class ReservationService {
     }
 
     private void ensureAvailable(ReservationRequest request) {
-        var busy = reservationRepository.existsOverlappingReservation(
-                request.courtId(),
-                request.reservationDate(),
-                request.startTime(),
-                request.endTime(),
-                List.of(ReservationStatus.PENDIENTE, ReservationStatus.CONFIRMADA)
-        );
+        var requestedStart = minuteOfOperationalDay(request.startTime(), request.startTime());
+        var requestedEnd = minuteOfOperationalDay(request.endTime(), request.startTime());
+        var busy = reservationRepository.findByCourtIdAndReservationDateOrderByStartTimeAsc(
+                        request.courtId(), request.reservationDate()).stream()
+                .filter(item -> item.getStatus() == ReservationStatus.PENDIENTE || item.getStatus() == ReservationStatus.CONFIRMADA)
+                .anyMatch(item -> {
+                    var itemStart = minuteOfOperationalDay(item.getStartTime(), request.startTime());
+                    var itemEnd = minuteOfOperationalDay(item.getEndTime(), request.startTime());
+                    if (itemEnd <= itemStart) itemEnd += 24 * 60;
+                    return itemStart < requestedEnd && itemEnd > requestedStart;
+                });
         if (busy) {
             log.warn("RESERVATION_CREATE_REJECTED_BUSY courtId={} date={} start={} end={}", request.courtId(), request.reservationDate(), request.startTime(), request.endTime());
             throw new ApiException(HttpStatus.CONFLICT, "El horario ya está reservado o pendiente");
@@ -356,14 +360,22 @@ public class ReservationService {
 
     private void ensureInsideConfiguredSchedule(ReservationRequest request) {
         var schedules = scheduleRepository.findByCourtIdAndDayOfWeekAndActiveTrue(request.courtId(), request.reservationDate().getDayOfWeek());
-        var valid = schedules.stream().anyMatch(schedule ->
-                !request.startTime().isBefore(schedule.getStartTime())
-                        && !request.endTime().isAfter(schedule.getEndTime())
-        );
+        var valid = schedules.stream().anyMatch(schedule -> {
+            var start = minuteOfOperationalDay(request.startTime(), schedule.getStartTime());
+            var end = minuteOfOperationalDay(request.endTime(), schedule.getStartTime());
+            var scheduleEnd = minuteOfOperationalDay(schedule.getEndTime(), schedule.getStartTime());
+            return start >= 0 && end > start && end <= scheduleEnd;
+        });
         if (!valid) {
             log.warn("RESERVATION_CREATE_REJECTED_OUT_OF_SCHEDULE courtId={} date={} start={} end={}", request.courtId(), request.reservationDate(), request.startTime(), request.endTime());
             throw new ApiException(HttpStatus.BAD_REQUEST, "El horario no está configurado como disponible para esta cancha");
         }
+    }
+
+    private int minuteOfOperationalDay(java.time.LocalTime time, java.time.LocalTime openingTime) {
+        var minutes = time.getHour() * 60 + time.getMinute();
+        var openingMinutes = openingTime.getHour() * 60 + openingTime.getMinute();
+        return minutes < openingMinutes ? minutes + 24 * 60 : minutes;
     }
 
     private ReservationDto toDto(Reservation reservation) {
