@@ -334,7 +334,13 @@ public class ReservationService {
         if (request.startTime().equals(request.endTime())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "La hora de inicio y fin no pueden ser iguales");
         }
-        var reservationStart = LocalDateTime.of(request.reservationDate(), request.startTime());
+        var schedules = scheduleRepository.findByCourtIdAndDayOfWeekAndActiveTrue(
+                request.courtId(), request.reservationDate().getDayOfWeek());
+        var startsNextDay = schedules.stream().anyMatch(schedule ->
+                !schedule.getEndTime().isAfter(schedule.getStartTime())
+                        && request.startTime().isBefore(schedule.getEndTime()));
+        var reservationDate = startsNextDay ? request.reservationDate().plusDays(1) : request.reservationDate();
+        var reservationStart = LocalDateTime.of(reservationDate, request.startTime());
         if (!reservationStart.isAfter(LocalDateTime.now())) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "No se puede reservar una fecha u hora pasada");
         }
